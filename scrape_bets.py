@@ -221,7 +221,7 @@ def check_bet(bet_row):
         if bet.bet_id not in alert_log:
             alert_log[bet.bet_id] = bet.game_date
             bet_msg = bet.msg()
-            # send_to_discord(bet_msg)
+            send_to_discord(bet_msg)
             print(f"Alerted bet! Details below:\n{bet_msg}\n")
 
 
@@ -268,38 +268,13 @@ def clear_cache(driver, timeout=60):
     driver.switch_to.new_window("tab")
     driver.get('chrome://settings/clearBrowserData')
 
-    # wait for the button to appear
-    # wait = WebDriverWait(driver=driver, timeout=timeout)
-    # wait.until(get_clear_browsing_button)
-
     # click the button to clear the cache
     time.sleep(2)
     get_clear_browsing_button(driver).click()
     print("Successfully cleared cache...")
     time.sleep(2)
 
-    # wait for the button to be gone before returning
-    # wait.until_not(get_clear_browsing_button)
-    driver.close()
-    driver.switch_to.window(bet_window)
-
-
-def clear_cache_2(driver):
-    bet_window = driver.current_window_handle
-    driver.switch_to.new_window("tab")
-    driver.get("chrome://settings/clearBrowserData")
-    time.sleep(3)
-    page = driver.find_element(By.TAG_NAME, "body")
-    for i in range(1, 5):
-        page.send_keys(Keys.TAB)
-    time.sleep(2)
-    page.send_keys(Keys.SPACE)
-    time.sleep(2)
-    for i in range(1, 6):
-        page.send_keys(Keys.TAB)
-    time.sleep(2)
-    page.send_keys(Keys.SPACE)
-    time.sleep(2)
+    # close tab
     driver.close()
     driver.switch_to.window(bet_window)
 
