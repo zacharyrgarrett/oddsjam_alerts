@@ -8,6 +8,8 @@ from selenium import webdriver
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
 
 WEBHOOK_URL = "https://discord.com/api/webhooks/979287046759804998/XZrPYX5opbSd3cA18m2ECNwxgxY53zHTMs2D096BdngFZlCU5YFK4xw9BsZbMcBNtZAi"
 OJ_EV_URL = "https://oddsjam.com/betting-tools/positive-ev"
@@ -15,9 +17,10 @@ OJ_EV_URL = "https://oddsjam.com/betting-tools/positive-ev"
 GROWTH_RATE = 0.0233778
 INFLECTION_POINT = 103.47824
 ASYMPTOTE = 0.6040086
+previous_date = datetime.datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
+refresh_count = 0
 
 chrome_options = Options()
-# chrome_options.add_argument('--headless')
 chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument('--disable-dev-shm-usage')
 chrome_options.add_argument('user-data-dir=C:\\Users\\Zachary\\AppData\\Local\\Google\\Chrome\\User Data')
@@ -136,11 +139,11 @@ class Bet:
         # Get list of books
         image_divs = info.find_elements(By.XPATH, "./div")[self.__top_or_bottom_bet].find_elements(By.XPATH, "./div")
         for image_div in image_divs:
-            img_elem = image_div.find_elements(By.XPATH, "./a/span/img")
+            img_elem = image_div.find_elements(By.XPATH, "./a/img")
             if len(img_elem):
                 book_name = img_elem[0].get_attribute("alt")
             else:
-                book_name = image_div.find_element(By.XPATH, "./span/img").get_attribute("alt")
+                book_name = image_div.find_element(By.XPATH, "./img").get_attribute("alt")
             if book_name != "OddsJam":
                 self.sportsbooks.append(book_name)
 
@@ -218,7 +221,7 @@ def check_bet(bet_row):
         if bet.bet_id not in alert_log:
             alert_log[bet.bet_id] = bet.game_date
             bet_msg = bet.msg()
-            send_to_discord(bet_msg)
+            # send_to_discord(bet_msg)
             print(f"Alerted bet! Details below:\n{bet_msg}\n")
 
 
@@ -241,69 +244,151 @@ def check_bets(bet_rows):
 
 
 def clean_alert_log():
-    print("Cleaning the alert log...")
-    date1 = datetime.datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
-    for bet_id in alert_log.keys():
-        date2 = datetime.datetime.strptime(alert_log[bet_id], "%m/%d/%Y")
-        if date2 < date1:
-            del (alert_log[bet_id])
+    global previous_date
+    today = datetime.datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
+    if previous_date < today:
+        print("Cleaning the alert log...")
+        for bet_id in alert_log.keys():
+            bet_date = datetime.datetime.strptime(alert_log[bet_id], "%m/%d/%Y")
+            if bet_date < today:
+                del (alert_log[bet_id])
+        previous_date = today
+
+
+def get_clear_browsing_button(driver):
+    """Find the "CLEAR BROWSING BUTTON" on the Chrome settings page."""
+    # return driver.find_element(By.CSS_SELECTOR, '* /deep/ #clearBrowsingDataConfirm')
+    return driver.execute_script("return document.querySelector('settings-ui').shadowRoot.querySelector('settings-main').shadowRoot.querySelector('settings-basic-page').shadowRoot.querySelector('settings-section > settings-privacy-page').shadowRoot.querySelector('settings-clear-browsing-data-dialog').shadowRoot.querySelector('#clearBrowsingDataDialog').querySelector('#clearBrowsingDataConfirm')")
+
+
+def clear_cache(driver, timeout=60):
+    """Clear the cookies and cache for the ChromeDriver instance."""
+    # navigate to the settings page
+    bet_window = driver.current_window_handle
+    driver.switch_to.new_window("tab")
+    driver.get('chrome://settings/clearBrowserData')
+
+    # wait for the button to appear
+    # wait = WebDriverWait(driver=driver, timeout=timeout)
+    # wait.until(get_clear_browsing_button)
+
+    # click the button to clear the cache
+    time.sleep(2)
+    get_clear_browsing_button(driver).click()
+    print("Successfully cleared cache...")
+    time.sleep(2)
+
+    # wait for the button to be gone before returning
+    # wait.until_not(get_clear_browsing_button)
+    driver.close()
+    driver.switch_to.window(bet_window)
+
+
+def clear_cache_2(driver):
+    bet_window = driver.current_window_handle
+    driver.switch_to.new_window("tab")
+    driver.get("chrome://settings/clearBrowserData")
+    time.sleep(3)
+    page = driver.find_element(By.TAG_NAME, "body")
+    for i in range(1, 5):
+        page.send_keys(Keys.TAB)
+    time.sleep(2)
+    page.send_keys(Keys.SPACE)
+    time.sleep(2)
+    for i in range(1, 6):
+        page.send_keys(Keys.TAB)
+    time.sleep(2)
+    page.send_keys(Keys.SPACE)
+    time.sleep(2)
+    driver.close()
+    driver.switch_to.window(bet_window)
+
+
+def get_oj_url(driver):
+    driver.get(OJ_EV_URL)
+    driver.execute_cdp_cmd("Network.setCacheDisabled", {"cacheDisabled": True})
+    time.sleep(7)
+
+
+def make_oj_driver(driver):
+    if driver is not None:
+        """Clear Cache"""
+        clear_cache(driver)
+    else:
+        """Create Driver"""
+        driver = webdriver.Chrome("drivers/chromedriver_win.exe", desired_capabilities=caps, options=chrome_options)
+        print("Driver created...")
+    get_oj_url(driver)
+
+    """Check for OJ message boxes"""
+    check_for_message_boxes(driver)
+
+    return driver, get_refresh_button(driver)
+
+
+def check_for_message_boxes(driver):
+    if len(driver.find_elements(By.ID, "intercom-container")) > 0:
+        print("Detected intercom-container")
+        driver.execute_script("""
+        document.getElementById("intercom-container").remove();
+        """)
+        print("Removed intercom-container")
+
+
+def get_refresh_button(driver):
+    print("Retrieving refresh button...")
+    refresh_button = driver.find_element(By.TAG_NAME, "main").find_element(By.TAG_NAME, "button")
+    print("Refresh button retrieved...")
+    return refresh_button
+
+
+def refresh_table(refresh_button):
+    global refresh_count
+    refresh_count += 1
+    if refresh_button is None:
+        print("Could not refresh table...")
+    else:
+        refresh_button.click()
+        print("Clicked 'Refresh'...")
+        time.sleep(3)
+
+
+def read_new_bets(driver):
+    rows = driver.find_element(By.TAG_NAME, "table").find_elements(By.TAG_NAME, "tr")
+    print("Starting 'check_bets' operation...")
+    start_time = time.time()
+    pool = ThreadPool(10)
+    pool.map(check_bet, rows[1:])
+    pool.close()
+    pool.join()
+    print(f"Took {time.time() - start_time} seconds to finish...")
+
+
+def check_for_clear_cache(driver, refresh_button):
+    global refresh_count
+    if refresh_count > 10:
+        driver, refresh_button = make_oj_driver(driver)
+        refresh_count = 0
+    return driver, refresh_button
 
 
 def start_scraping():
-    new_browser_count = 0
+    driver = None
     while True:
         try:
-            # Check if alert_log needs to be cleaned
-            if new_browser_count > 50:
-                clean_alert_log()
-                new_browser_count = 0
-
             # Retrieve page
-            new_browser_count += 1
-            driver = webdriver.Chrome("drivers/chromedriver_win.exe", desired_capabilities=caps, options=chrome_options)
-            print("Driver created...")
-            driver.get(OJ_EV_URL)
-            print("URL requested...")
-            time.sleep(7)
-
-            # Check for message box
-            if len(driver.find_elements(By.ID, "intercom-container")) > 0:
-                print("Detected intercom-container")
-                driver.execute_script("""
-                document.getElementById("intercom-container").remove();
-                """)
-                print("Removed intercom-container")
-
-            # Get refresh button
-            print("Retrieving refresh button...")
-            button = driver.find_element(By.TAG_NAME, "main").find_element(By.TAG_NAME, "button")
-            print("Refresh button retrieved...")
-            time.sleep(1)
+            driver, refresh_button = make_oj_driver(driver)
 
             # Loop refresh
-            refresh_count = 0
             while True:
-                refresh_count += 1
-                button.click()
-                print("Clicked 'Refresh'...")
-                time.sleep(3)
-                rows = driver.find_element(By.TAG_NAME, "table").find_elements(By.TAG_NAME, "tr")
-                print("Starting 'check_bets' operation...")
-                start_time = time.time()
-                pool = ThreadPool(10)
-                pool.map(check_bet, rows[1:])
-                pool.close()
-                pool.join()
-                print(f"Took {time.time() - start_time} seconds to finish...")
-                if refresh_count >= 30:
-                    raise Exception("Refreshing Browser...")
+                clean_alert_log()
+                refresh_table(refresh_button)
+                read_new_bets(driver)
+                driver, refresh_button = check_for_clear_cache(driver, refresh_button)
 
         except Exception as ex:
+            print("Error:")
             print(ex)
-            print("Extraction restarting...")
-            driver.quit()
-            del driver
-            time.sleep(3)
 
 
 if __name__ == "__main__":
