@@ -8,8 +8,9 @@ from selenium import webdriver
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
+
+from concurrent.futures import ProcessPoolExecutor
+import multiprocessing
 
 WEBHOOK_URL = "https://discord.com/api/webhooks/979287046759804998/XZrPYX5opbSd3cA18m2ECNwxgxY53zHTMs2D096BdngFZlCU5YFK4xw9BsZbMcBNtZAi"
 OJ_EV_URL = "https://oddsjam.com/betting-tools/positive-ev"
@@ -17,6 +18,7 @@ OJ_EV_URL = "https://oddsjam.com/betting-tools/positive-ev"
 GROWTH_RATE = 0.0233778
 INFLECTION_POINT = 103.47824
 ASYMPTOTE = 0.6040086
+MIN_ACCEPTABLE_PERCENT = 0
 previous_date = datetime.datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
 refresh_count = 0
 
@@ -157,7 +159,7 @@ class Bet:
 
     def __get_recommended_bet_size(self):
         bet_midpoint = (self.__max_bet - self.__min_bet) / 2
-        odds = int(self.actual_odds)
+        odds = int(self.market_odds)
         bet_size = 0
         if odds < 0:
             slope = bet_midpoint / (self.__min_odds + 100)
@@ -204,9 +206,13 @@ def send_to_discord(msg):
     webhook.send(msg)
 
 
+def calculate_acceptable_percent(width):
+    return (ASYMPTOTE / (1 + math.exp((-1 * GROWTH_RATE) * (width - INFLECTION_POINT)))) * 100
+
+
 def desired_bet(width, percent):
-    min_percent = ASYMPTOTE / (1 + math.exp((-1 * GROWTH_RATE) * (width - INFLECTION_POINT)))
-    return percent >= (min_percent * 100)
+    min_percent = calculate_acceptable_percent(width)
+    return percent >= min_percent
 
 
 def check_bet(bet_row):
@@ -226,11 +232,17 @@ def check_bet(bet_row):
 
 
 def check_bets(bet_rows):
-    for bet_row in bet_rows[1:]:
+
+    for bet_row in bet_rows:
         bet = Bet(bet_row, minimal_scrape=True)
 
         width = int(bet.width)
         percent = float(bet.ev_percent.replace("%", ""))
+
+        # Break loop to save processing time
+        if percent < MIN_ACCEPTABLE_PERCENT:
+            break
+
         desired = desired_bet(width, percent)
 
         # Check only percent/width, then decide to gather the rest of the information
@@ -330,12 +342,36 @@ def refresh_table(refresh_button):
 
 def read_new_bets(driver):
     rows = driver.find_element(By.TAG_NAME, "table").find_elements(By.TAG_NAME, "tr")
+    rows.remove(rows[0])
     print("Starting 'check_bets' operation...")
     start_time = time.time()
-    pool = ThreadPool(10)
-    pool.map(check_bet, rows[1:])
-    pool.close()
-    pool.join()
+
+    # Threading
+    # pool = ThreadPool(10)
+    # pool.map(check_bet, rows[1:])
+    # pool.close()
+    # pool.join()
+
+    # Multiprocessing attempt #1
+    # with ProcessPoolExecutor() as executor:
+    #     for bet_row in rows[1:]:
+    #         executor.submit(check_bet, bet_row)
+
+    # MP attempt #2
+    processes = []
+    n_processes = 10
+    process_size = math.ceil(len(rows) / n_processes)
+    # print(f"Total = {len(rows)}")
+    for i in range(1, n_processes + 1):
+        start = (i - 1) * process_size
+        end = i * process_size if len(rows) >= i * process_size else len(rows)
+        # print(f"Process {i} = {len(rows[start:end])}")
+        p = multiprocessing.Process(target=check_bets(rows[start:end]))
+        p.start()
+        processes.append(p)
+    for p in processes:
+        p.join()
+
     print(f"Took {time.time() - start_time} seconds to finish...")
 
 
@@ -347,8 +383,14 @@ def check_for_clear_cache(driver, refresh_button):
     return driver, refresh_button
 
 
+def set_min_acceptable_percent():
+    global MIN_ACCEPTABLE_PERCENT
+    MIN_ACCEPTABLE_PERCENT = calculate_acceptable_percent(0)
+
+
 def start_scraping():
     driver = None
+    set_min_acceptable_percent()
     while True:
         try:
             # Retrieve page
