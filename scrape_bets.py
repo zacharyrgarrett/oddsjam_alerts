@@ -3,6 +3,8 @@ import math
 import time
 import datetime
 from multiprocessing.pool import ThreadPool
+
+import selenium.common.exceptions
 from discord import Webhook, RequestsWebhookAdapter
 from selenium import webdriver
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
@@ -232,7 +234,6 @@ def check_bet(bet_row):
 
 
 def check_bets(bet_rows):
-
     for bet_row in bet_rows:
         bet = Bet(bet_row, minimal_scrape=True)
 
@@ -270,7 +271,8 @@ def clean_alert_log():
 def get_clear_browsing_button(driver):
     """Find the "CLEAR BROWSING BUTTON" on the Chrome settings page."""
     # return driver.find_element(By.CSS_SELECTOR, '* /deep/ #clearBrowsingDataConfirm')
-    return driver.execute_script("return document.querySelector('settings-ui').shadowRoot.querySelector('settings-main').shadowRoot.querySelector('settings-basic-page').shadowRoot.querySelector('settings-section > settings-privacy-page').shadowRoot.querySelector('settings-clear-browsing-data-dialog').shadowRoot.querySelector('#clearBrowsingDataDialog').querySelector('#clearBrowsingDataConfirm')")
+    return driver.execute_script(
+        "return document.querySelector('settings-ui').shadowRoot.querySelector('settings-main').shadowRoot.querySelector('settings-basic-page').shadowRoot.querySelector('settings-section > settings-privacy-page').shadowRoot.querySelector('settings-clear-browsing-data-dialog').shadowRoot.querySelector('#clearBrowsingDataDialog').querySelector('#clearBrowsingDataConfirm')")
 
 
 def clear_cache(driver, timeout=60):
@@ -303,8 +305,14 @@ def make_oj_driver(driver):
         clear_cache(driver)
     else:
         """Create Driver"""
-        driver = webdriver.Chrome("drivers/chromedriver_win.exe", desired_capabilities=caps, options=chrome_options)
-        print("Driver created...")
+        while driver is None:
+            try:
+                time.sleep(5)
+                driver = webdriver.Chrome("drivers/chromedriver_win.exe", desired_capabilities=caps, options=chrome_options)
+                print("Driver created...")
+            except selenium.common.exceptions.InvalidArgumentException as ex:
+                print("Wasn't able to use the chrome user profile, trying again in 30 seconds...")
+
     get_oj_url(driver)
 
     """Check for OJ message boxes"""
@@ -402,7 +410,6 @@ def start_scraping():
                 refresh_table(refresh_button)
                 read_new_bets(driver)
                 driver, refresh_button = check_for_clear_cache(driver, refresh_button)
-
         except Exception as ex:
             print("Error:")
             print(ex)
