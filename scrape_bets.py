@@ -14,7 +14,7 @@ from selenium.webdriver.chrome.options import Options
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing
 
-WEBHOOK_URL = "https://discord.com/api/webhooks/979287046759804998/XZrPYX5opbSd3cA18m2ECNwxgxY53zHTMs2D096BdngFZlCU5YFK4xw9BsZbMcBNtZAi"
+WEBHOOK_URL = "https://discord.com/api/webhooks/<DISCORD_WEBHOOK_KEY>"
 OJ_EV_URL = "https://oddsjam.com/betting-tools/positive-ev"
 
 GROWTH_RATE = 0.0233778
